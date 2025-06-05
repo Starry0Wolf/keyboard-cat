@@ -33,7 +33,20 @@ def choose_chaos():
 
 TheList = []
 CapsMode = False
-
+def Read_txt():
+    word_list = []
+    try:
+        with open('many_words.txt', 'r') as file:
+            for line in file:
+                # Strip whitespace and skip empty lines
+                word = line.strip()
+                if word:
+                    word_list.append(word)
+    except FileNotFoundError:
+        print("Error: many_words.txt file not found")
+        return []
+    return word_list
+    
 def randKeys():
     for i in range(10):
         all_keys = pyautogui.KEYBOARD_KEYS
@@ -77,6 +90,18 @@ def randLetters():
     CapsMode = False
 
 def randWords():
+    words = Read_txt()
+    if not words:
+        return
+    
+    # Select and type 3 random words
+    for _ in range(10):
+        word = random.choice(words)
+        if random.randint(0,1) == 0:
+            # Capitalize the word
+            word = word.upper()
+        pyautogui.typewrite(word + ' ')
+
 
 def randEmoticons():
 

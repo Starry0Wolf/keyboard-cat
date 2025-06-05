@@ -8,3 +8,6 @@ __pycache__/
 # Ignore virtual environments
 venv/
 .env/
+
+# Ignore stupid MacOS 
+.DS_Store
