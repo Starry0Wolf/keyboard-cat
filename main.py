@@ -12,8 +12,8 @@ import threading
 
 def chaos_time():
     # Remove the fixed randomness and use variable timing instead
-    min_seconds = 4  # minimum time between chaos events
-    max_seconds = 30  # maximum time between chaos events (27000 = 7.5 hours)
+    min_seconds = 1  # minimum time between chaos events
+    max_seconds = 20  # maximum time between chaos events (27000 = 7.5 hours)
     
     while True:
         try:
@@ -31,11 +31,11 @@ def start_chaos_daemon():
     return chaos_thread
 
 def choose_chaos():
-    TheNumber = random.randint(0,3)
-    if TheNumber == 0:
-        randKeys()
+    TheNumber = random.randint(1,3)
+    # if TheNumber == 0:
+    #     randKeys()
 
-    elif TheNumber == 1:
+    if TheNumber == 1:
         randWords()
 
     elif TheNumber == 2:
@@ -46,6 +46,8 @@ def choose_chaos():
 
     # elif TheNumber == 4:
     #     randSentence()
+
+    pyautogui.press('enter')
 
 # all_keys = pyautogui.KEYBOARD_KEYS
 
@@ -89,6 +91,7 @@ def randKeys():
     TheList.clear()
     pyautogui.keyUp('capslock')
     CapsMode = False
+    print('Keys mode activated')
 
 def randLetters():
     global CapsMode  # Properly scope the global variable
@@ -112,6 +115,7 @@ def randLetters():
     TheList.clear()
     pyautogui.keyUp('capslock')
     CapsMode = False
+    print('Letters mode activated')
 
 def randWords():
     words = Read_txt('many_words.txt')
@@ -125,6 +129,7 @@ def randWords():
             # Capitalize the word
             word = word.upper()
         pyautogui.typewrite(word + ' ')
+    print('Words mode activated')
 
 
 def randEmoticons():
@@ -136,6 +141,7 @@ def randEmoticons():
     for _ in range(10):
         word = random.choice(emotes)
         pyautogui.typewrite(word + ' ')
+    print('Emoticon mode activated')
 
 # def randSentence():
     # TODO: use ollama maybe for some stupid sentences?
