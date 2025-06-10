@@ -59,7 +59,9 @@ def Read_txt(file):
                 # Strip whitespace and skip empty lines
                 # word = line.strip()
                 # if word:
-                word_list.append(line)
+                word = line.strip()
+                if word:  # Only append non-empty lines
+                    word_list.append(word)
     except FileNotFoundError:
         print("Error: many_words.txt file not found")
         return []
