@@ -141,11 +141,14 @@ def randEmoticons():
     for _ in range(10):
         word = random.choice(emotes)
         pyautogui.typewrite(word + ' ')
+
     print('Emoticon mode activated')
+    pyautogui.press('enter')
 
 # def randSentence():
     # TODO: use ollama maybe for some stupid sentences?
-    # TODO: implement this
+    # TODO: implement this:D o _ O :} .-. ;] o-o ;\ ;D ;] 0_0 
+    
 
 if __name__ == "__main__":
     print("Chaos cat is now running in the background...")
