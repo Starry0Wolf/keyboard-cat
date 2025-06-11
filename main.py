@@ -1,7 +1,6 @@
 import random
 import pyautogui
 import time
-from pynput import keyboard
 import threading
 
 # 0 is random keys
