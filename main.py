@@ -147,7 +147,7 @@ def randEmoticons():
 
 # def randSentence():
     # TODO: use ollama maybe for some stupid sentences?
-    # TODO: implement this:D o _ O :} .-. ;] o-o ;\ ;D ;] 0_0 
+    # TODO: implement this
     
 
 if __name__ == "__main__":
