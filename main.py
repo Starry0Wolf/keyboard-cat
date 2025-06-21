@@ -21,8 +21,8 @@ ENABLE_MINECRAFT_MODE = False # Mode 5
 
 def chaos_time():
     # Remove the fixed randomness and use variable timing instead
-    min_seconds = 1  # minimum time between chaos events
-    max_seconds = 2  # maximum time between chaos events (27000 = 7.5 hours)
+    min_seconds = 250  # minimum time between chaos events
+    max_seconds = 1000  # maximum time between chaos events (27000 = 7.5 hours)
 
     global running
     while running:
@@ -123,7 +123,7 @@ def randMC():
 def randKeys():
     global CapsMode  # Properly scope the global variable
     TheList = []  # Move list creation inside function
-    for i in range(10):
+    for i in range(random.randint(15,50)):
         all_keys = pyautogui.KEYBOARD_KEYS
         if random.randint(0,1) == 0:
             TheList.append('capslock')
@@ -147,8 +147,8 @@ def randKeys():
 def randLetters():
     global CapsMode  # Properly scope the global variable
     TheList = []  # Move list creation inside function
-    for i in range(10):
-        all_letters = [chr(i) for i in range(ord('a'), ord('z')+1)]
+    for i in range(random.randint(15,50)):
+        all_letters = [chr(i) for i in range(32, 127) if not (chr(i).startswith('F') and len(chr(i)) > 1)]
         if random.randint(0,1) == 0:
             TheList.append('capslock')
         TheList.append(random.choice(all_letters))
@@ -217,6 +217,7 @@ if __name__ == "__main__":
     
     # Start the chaos thread
     chaos_thread = start_chaos_daemon()
+    choose_chaos()
     
     try:
         # Keep the main thread alive
