@@ -32,24 +32,43 @@ config = {
     "enable_random_sentences": False,
     "enable_minecraft_mode": False,
     "enable_save_document": False,
-    "min_interval_sec": 50,
-    "max_interval_sec": 120,
-    "enable_auto_update": False,  # ON by default
+    "min_interval_sec": 10,
+    "max_interval_sec": 50,
+    "enable_auto_update": True,
     "show_tooltip_countdown": False,
 }
 
 _popup_windows = []
 _next_chaos_in_ms = 0
+_running_chaos = False
+_chaos_timer = None
 
 
-# ─── RESOURCE PATH ───────────────────────────────────────────────
-def resource_path(filename):
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, filename)
-    return os.path.join(os.path.abspath("."), filename)
+# ─── TRAY SETUP ─────────────────────────────────────────────────────
+def create_tray(app):
+    tray = QSystemTrayIcon()
+    tray.setIcon(QIcon("cat.png"))
+    tray.setToolTip("Keyboard Cat Chaos")
 
+    menu = QMenu()
 
-# ─── CAT IMAGE FETCHER ───────────────────────────────────────────
+    snooze_action = QAction("Snooze 5 minutes")
+    snooze_action.triggered.connect(lambda: snooze_chaos(300))
+    menu.addAction(snooze_action)
+
+    settings_action = QAction("Settings")
+    settings_action.triggered.connect(show_settings)
+    menu.addAction(settings_action)
+
+    quit_action = QAction("Exit")
+    quit_action.triggered.connect(app.quit)
+    menu.addAction(quit_action)
+
+    tray.setContextMenu(menu)
+    tray.show()
+    return tray
+
+# ─── CAT IMAGE FETCHER ─────────────────────────────────────────────
 def random_cat_pixmap():
     try:
         with urllib.request.urlopen("https://api.thecatapi.com/v1/images/search") as r:
@@ -59,27 +78,29 @@ def random_cat_pixmap():
         pix = QPixmap()
         if pix.loadFromData(data):
             return pix
-    except Exception as e:
-        print("Error fetching cat image:", e)
-
+    except Exception:
+        pass
     fallback = QPixmap(512, 512)
     fallback.fill(Qt.black)
     return fallback
 
 
-# ─── POPUP WRAPPER ──────────────────────────────────────────────
+# ─── POPUP DECORATOR ───────────────────────────────────────────────
 def popup_wrapper(func):
     def wrapped(*args, **kwargs):
+        global _running_chaos
+        if _running_chaos:
+            return
+        _running_chaos = True
         popups = []
 
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if sys.platform == "win32":
-            flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+            flags |= Qt.Tool
         elif sys.platform == "darwin":
-            flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
-        else:
-            flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+            flags |= Qt.WindowDoesNotAcceptFocus
 
-        for screen in QApplication.screens():
+        for screen in QApplication.instance().screens():
             geo = screen.geometry()
             window = QMainWindow()
             window.setWindowFlags(flags)
@@ -107,351 +128,89 @@ def popup_wrapper(func):
             for w in popups:
                 w.close()
                 _popup_windows.remove(w)
+            global _running_chaos
+            _running_chaos = False
 
-        QTimer.singleShot(100, run_and_close_all)
+        QTimer.singleShot(3000, run_and_close_all)  # show cat for 3s
+
     return wrapped
 
 
-# ─── CHAOS MODES ──────────────────────────────────────────────────
+# ─── CHAOS FUNCTIONS ───────────────────────────────────────────────
 @popup_wrapper
-def rand_keys():
-    caps = False
-    seq = []
-    for _ in range(random.randint(15, 50)):
-        if random.randrange(10) == 0:
-            seq.append('capslock')
-        seq.append(random.choice(pyautogui.KEYBOARD_KEYS))
-    for k in seq:
-        if k == 'capslock':
-            if not caps:
-                pyautogui.keyDown('capslock')
-                caps = True
-            else:
-                pyautogui.keyUp('capslock')
-                caps = False
-        else:
-            pyautogui.press(k)
-    pyautogui.keyUp('capslock')
-
-@popup_wrapper
-def rand_letters():
-    caps = False
-    letters = [chr(i) for i in range(32, 127)]
-    seq = []
-    for _ in range(random.randint(15, 50)):
-        if random.randrange(10) == 0:
-            seq.append('capslock')
-        seq.append(random.choice(letters))
-    for ch in seq:
-        if ch == 'capslock':
-            if not caps:
-                pyautogui.keyDown('capslock')
-                caps = True
-            else:
-                pyautogui.keyUp('capslock')
-                caps = False
-        else:
-            pyautogui.press(ch)
-    pyautogui.keyUp('capslock')
-
-@popup_wrapper
-def rand_words():
-    try:
-        with open(WORD_LIST_PATH) as f:
-            words = [w.strip() for w in f if w.strip()]
-    except FileNotFoundError:
-        print("many_words.txt not found")
-        return
-    for _ in range(10):
-        w = random.choice(words)
-        if random.randrange(10) == 0:
-            w = w.upper()
-        pyautogui.typewrite(w + ' ')
-
-@popup_wrapper
-def rand_emoticons():
-    try:
-        with open(EMOTICON_LIST_PATH) as f:
-            emotes = [e.strip() for e in f if e.strip()]
-    except FileNotFoundError:
-        print("emoticonList.txt not found")
-        return
-    for _ in range(10):
-        pyautogui.typewrite(random.choice(emotes) + ' ')
-    pyautogui.press('enter')
-
-@popup_wrapper
-def rand_minecraft_mode():
-    pyautogui.press(random.choice(['w','a','s','d','space','shift']))
-
-def rand_sentences():
-    print("rand_sentences is not implemented yet.")
-
-
-# ─── SCHEDULER & CORE ─────────────────────────────────────────────
-def choose_chaos():
-    modes = []
-    if config["enable_random_keys"]:      modes.append(rand_keys)
-    if config["enable_random_words"]:     modes.append(rand_words)
-    if config["enable_random_emoticons"]: modes.append(rand_emoticons)
-    if config["enable_random_letters"]:   modes.append(rand_letters)
-    if config["enable_random_sentences"]: modes.append(rand_sentences)
-    if config["enable_minecraft_mode"]:   modes.append(rand_minecraft_mode)
-
-    if not modes:
-        print("No chaos modes enabled.")
-        return
-
-    if config["enable_save_document"]:
-        pyautogui.hotkey('ctrl', 's')
-
-    random.choice(modes)()
-    pyautogui.keyUp('capslock')
-    pyautogui.press('enter')
+def test_chaos():
+    print("Chaos triggered!")
 
 
 def schedule_chaos():
-    global _next_chaos_in_ms
-    choose_chaos()
+    global _next_chaos_in_ms, _chaos_timer
     delay = random.randint(config["min_interval_sec"], config["max_interval_sec"]) * 1000
     _next_chaos_in_ms = delay
-    QTimer.singleShot(delay, schedule_chaos)
+
+    if config["show_tooltip_countdown"]:
+        tray.setToolTip(f"Next chaos in {delay // 1000} sec")
+
+    _chaos_timer = QTimer()
+    _chaos_timer.setSingleShot(True)
+    _chaos_timer.timeout.connect(run_chaos)
+    _chaos_timer.start(delay)
 
 
-# ─── SETTINGS DIALOG ──────────────────────────────────────────────
-class SettingsDialog(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Chaos Cat Settings")
-        self.setWindowFlags(Qt.WindowStaysOnTopHint)
-
-        layout = QVBoxLayout()
-
-        # Timing inputs
-        timing_layout = QHBoxLayout()
-        timing_layout.addWidget(QLabelWidget("Min Interval (sec):"))
-        self.min_spin = QSpinBox()
-        self.min_spin.setRange(1, 3600)
-        self.min_spin.setValue(config["min_interval_sec"])
-        timing_layout.addWidget(self.min_spin)
-
-        timing_layout.addWidget(QLabelWidget("Max Interval (sec):"))
-        self.max_spin = QSpinBox()
-        self.max_spin.setRange(1, 3600)
-        self.max_spin.setValue(config["max_interval_sec"])
-        timing_layout.addWidget(self.max_spin)
-        layout.addLayout(timing_layout)
-
-        # Chaos modes checkboxes
-        self.chk_keys = QCheckBox("Random Keys")
-        self.chk_keys.setChecked(config["enable_random_keys"])
-        layout.addWidget(self.chk_keys)
-
-        self.chk_words = QCheckBox("Random Words")
-        self.chk_words.setChecked(config["enable_random_words"])
-        layout.addWidget(self.chk_words)
-
-        self.chk_emotes = QCheckBox("Random Emoticons")
-        self.chk_emotes.setChecked(config["enable_random_emoticons"])
-        layout.addWidget(self.chk_emotes)
-
-        self.chk_letters = QCheckBox("Random Letters")
-        self.chk_letters.setChecked(config["enable_random_letters"])
-        layout.addWidget(self.chk_letters)
-
-        self.chk_sentences = QCheckBox("Random Sentences")
-        self.chk_sentences.setChecked(config["enable_random_sentences"])
-        layout.addWidget(self.chk_sentences)
-
-        self.chk_minecraft = QCheckBox("Minecraft Mode")
-        self.chk_minecraft.setChecked(config["enable_minecraft_mode"])
-        layout.addWidget(self.chk_minecraft)
-
-        self.chk_save_doc = QCheckBox("Save Document Before Chaos")
-        self.chk_save_doc.setChecked(config["enable_save_document"])
-        layout.addWidget(self.chk_save_doc)
-
-        self.chk_tooltip = QCheckBox("Show Time Until Next Event on Hover")
-        self.chk_tooltip.setChecked(config["show_tooltip_countdown"])
-        layout.addWidget(self.chk_tooltip)
-
-        self.chk_auto_update = QCheckBox("Enable Auto Update")
-        self.chk_auto_update.setChecked(config["enable_auto_update"])
-        layout.addWidget(self.chk_auto_update)
-
-        # Save button
-        save_btn = QPushButton("Save Settings")
-        save_btn.clicked.connect(self.save)
-        layout.addWidget(save_btn)
-
-        self.setLayout(layout)
-
-    def save(self):
-        # Save settings back to config dict
-        min_val = self.min_spin.value()
-        max_val = self.max_spin.value()
-        if min_val > max_val:
-            QMessageBox.warning(self, "Invalid Timing", "Min interval cannot be greater than max interval.")
-            return
-
-        config["min_interval_sec"] = min_val
-        config["max_interval_sec"] = max_val
-        config["enable_random_keys"] = self.chk_keys.isChecked()
-        config["enable_random_words"] = self.chk_words.isChecked()
-        config["enable_random_emoticons"] = self.chk_emotes.isChecked()
-        config["enable_random_letters"] = self.chk_letters.isChecked()
-        config["enable_random_sentences"] = self.chk_sentences.isChecked()
-        config["enable_minecraft_mode"] = self.chk_minecraft.isChecked()
-        config["enable_save_document"] = self.chk_save_doc.isChecked()
-        config["show_tooltip_countdown"] = self.chk_tooltip.isChecked()
-        config["enable_auto_update"] = self.chk_auto_update.isChecked()
-
-        self.close()
-
-
-# ─── AUTO UPDATE ────────────────────────────────────────────────
-
-def get_running_exe_path():
-    if getattr(sys, 'frozen', False):
-        return sys.executable
-    return None
-
-def download_file(url, dest_path):
-    try:
-        with urllib.request.urlopen(url) as r, open(dest_path, 'wb') as f:
-            shutil.copyfileobj(r, f)
-        return True
-    except Exception as e:
-        print(f"Failed to download update: {e}")
-        return False
-
-def install_update(new_exe_path):
-    current_exe = get_running_exe_path()
-    if not current_exe:
-        print("Not a frozen executable; cannot auto-update.")
-        return
-
-    update_script = f"""
-    @echo off
-    timeout /t 2 /nobreak >nul
-    copy /y "{new_exe_path}" "{current_exe}"
-    start "" "{current_exe}"
-    """
-
-    script_path = os.path.join(tempfile.gettempdir(), "update.bat")
-    with open(script_path, 'w') as f:
-        f.write(update_script)
-
-    subprocess.Popen(["cmd", "/c", script_path], creationflags=subprocess.CREATE_NEW_CONSOLE)
-    app.quit()
-
-def check_for_updates():
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-    try:
-        with urllib.request.urlopen(url) as r:
-            data = json.loads(r.read().decode())
-            latest_version = data['tag_name']
-            if latest_version > APP_VERSION:
-                assets = data.get('assets', [])
-                for asset in assets:
-                    if asset['name'].endswith('.exe'):
-                        return latest_version, asset['browser_download_url']
-    except Exception as e:
-        print("Update check failed:", e)
-    return None, None
-
-def auto_update_check():
-    if config.get("enable_auto_update", False):
-        latest_version, download_url = check_for_updates()
-        if latest_version:
-            print(f"Auto-updating to {latest_version} ...")
-            tmp_path = os.path.join(tempfile.gettempdir(), "KeyboardCatNew.exe")
-            success = download_file(download_url, tmp_path)
-            if success:
-                install_update(tmp_path)
-
-
-# ─── TRAY ICON & MAIN ─────────────────────────────────────────────
-class TrayApp(QSystemTrayIcon):
-    def __init__(self):
-        super().__init__()
-        self.setIcon(QIcon(resource_path("cat.png")))
-        self.setToolTip("Chaos Cat - Running...")
-        self.settings_dialog = None
-
-        # Build menu
-        menu = QMenu()
-
-        self.action_snooze = QAction("Snooze 5 Minutes")
-        self.action_snooze.triggered.connect(self.snooze)
-        menu.addAction(self.action_snooze)
-
-        self.action_settings = QAction("Settings")
-        self.action_settings.triggered.connect(self.open_settings)
-        menu.addAction(self.action_settings)
-
-        self.action_exit = QAction("Exit")
-        self.action_exit.triggered.connect(QApplication.instance().quit)
-        menu.addAction(self.action_exit)
-
-        self.setContextMenu(menu)
-
-        # Timer for chaos events
-        self.chaos_timer = QTimer()
-        self.chaos_timer.timeout.connect(schedule_chaos)
-        self.chaos_timer.start(1000)  # Will be reset immediately
-
-        # Timer for countdown tooltip update
-        self.tooltip_timer = QTimer()
-        self.tooltip_timer.timeout.connect(self.update_tooltip)
-        self.tooltip_timer.start(1000)
-
-    def snooze(self):
-        self.chaos_timer.stop()
-        QTimer.singleShot(5 * 60 * 1000, self.resume)
-
-    def resume(self):
-        schedule_chaos()
-        self.chaos_timer.start()
-
-    def open_settings(self):
-        if self.settings_dialog is None:
-            self.settings_dialog = SettingsDialog()
-            self.settings_dialog.show()
-            self.settings_dialog.destroyed.connect(self.settings_closed)
-        else:
-            self.settings_dialog.activateWindow()
-
-    def settings_closed(self):
-        # Update timers and tooltip based on new config
-        self.chaos_timer.stop()
-        schedule_chaos()
-        self.chaos_timer.start()
-
-    def update_tooltip(self):
-        if config["show_tooltip_countdown"]:
-            seconds_left = _next_chaos_in_ms // 1000
-            self.setToolTip(f"Chaos Cat - Next event in {seconds_left} sec")
-        else:
-            self.setToolTip("Chaos Cat - Running...")
-
-def main():
-    global app
-    app = QApplication([])
-    app.setQuitOnLastWindowClosed(False)
-
-    tray = TrayApp()
-    tray.show()
-
-    # Start chaos scheduling immediately
+def run_chaos():
+    test_chaos()
     schedule_chaos()
 
-    # Auto-update timer: check every 30 minutes
-    update_timer = QTimer()
-    update_timer.timeout.connect(auto_update_check)
-    update_timer.start(30 * 60 * 1000)
-    auto_update_check()  # also check once immediately
 
+def snooze_chaos(seconds):
+    if _chaos_timer:
+        _chaos_timer.stop()
+    QTimer.singleShot(seconds * 1000, schedule_chaos)
+
+
+# ─── SETTINGS UI ───────────────────────────────────────────────────
+def show_settings():
+    win = QWidget()
+    win.setWindowTitle("Settings")
+
+    layout = QVBoxLayout()
+
+    # Timing
+    time_row = QHBoxLayout()
+    min_box = QSpinBox(); min_box.setValue(config["min_interval_sec"])
+    max_box = QSpinBox(); max_box.setValue(config["max_interval_sec"])
+    time_row.addWidget(QLabelWidget("Min delay")); time_row.addWidget(min_box)
+    time_row.addWidget(QLabelWidget("Max delay")); time_row.addWidget(max_box)
+    layout.addLayout(time_row)
+
+    # Options
+    tooltip_toggle = QCheckBox("Show tooltip countdown")
+    tooltip_toggle.setChecked(config["show_tooltip_countdown"])
+    layout.addWidget(tooltip_toggle)
+
+    update_toggle = QCheckBox("Enable auto-update")
+    update_toggle.setChecked(config["enable_auto_update"])
+    layout.addWidget(update_toggle)
+
+    save_btn = QPushButton("Save")
+    def save():
+        config["min_interval_sec"] = min_box.value()
+        config["max_interval_sec"] = max_box.value()
+        config["show_tooltip_countdown"] = tooltip_toggle.isChecked()
+        config["enable_auto_update"] = update_toggle.isChecked()
+        win.close()
+    save_btn.clicked.connect(save)
+    layout.addWidget(save_btn)
+
+    win.setLayout(layout)
+    win.show()
+
+
+# ─── MAIN ─────────────────────────────────────────────────────────
+def main():
+    global tray
+    app = QApplication([])
+    tray = create_tray(app)
+    schedule_chaos()
     app.exec_()
 
 if __name__ == "__main__":
