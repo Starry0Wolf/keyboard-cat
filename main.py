@@ -6,16 +6,19 @@ import os
 import signal
 from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
-
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtCore import QByteArray
+import urllib.request
+import json
 
 # Configuration flags for different chaos modes
 ENABLE_RANDOM_KEYS = False  # Mode 0
-ENABLE_RANDOM_WORDS = False  # Mode 1
+ENABLE_RANDOM_WORDS = True  # Mode 1
 ENABLE_RANDOM_EMOTICONS = False  # Mode 2
 ENABLE_RANDOM_LETTERS = True  # Mode 3
 ENABLE_RANDOM_SENTENCES = False  # Mode 4 (not implemented yet)
 ENABLE_MINECRAFT_MODE = False # Mode 5
-ENABLE_SAVE_DOCUMENT = True # Presses Ctrl and S to save before it does anythings, might save you hours of work.
+ENABLE_SAVE_DOCUMENT = False # Presses Ctrl and S to save before it does anythings, might save you hours of work.
 ENABLE_POPUP_CAT = True  # Cat covers screen while chaos is happening
 
 # 0 is random keys
@@ -26,8 +29,8 @@ ENABLE_POPUP_CAT = True  # Cat covers screen while chaos is happening
 
 def chaos_time():
     # Remove the fixed randomness and use variable timing instead
-    min_seconds = 1000  # minimum time between chaos events
-    max_seconds = 27000  # maximum time between chaos events (27000 = 7.5 hours)
+    min_seconds = 5  # minimum time between chaos events
+    max_seconds = 10  # maximum time between chaos events (27000 = 7.5 hours)
 
     global running
     while running:
@@ -92,6 +95,17 @@ def choose_chaos():
 
     pyautogui.press('enter')
 
+def random_cat():
+    with urllib.request.urlopen("https://api.thecatapi.com/v1/images/search") as response:
+        data = json.loads(response.read().decode())
+        image_url = data[0]["url"]
+
+    with urllib.request.urlopen(image_url) as img_response:
+        img_data = img_response.read()
+
+    pixmap = QPixmap()
+    pixmap.loadFromData(img_data)
+    return pixmap
 # all_keys = pyautogui.KEYBOARD_KEYS
 
 def popup_wrapper(func):
@@ -110,6 +124,8 @@ def popup_wrapper(func):
             window.setGeometry(0, 0, app.desktop().screenGeometry().width(), app.desktop().screenGeometry().height())
 
             label = QLabel("Chaos Cat is now running!", window)
+            # get the cat image from the random_cat function and display it
+            label.setPixmap(random_cat())
             label.setAlignment(Qt.AlignCenter)
             label.setStyleSheet("font-size: 50px; color: white; background-color: black;")
             label.setGeometry(0, 0, window.width(), window.height())
