@@ -1,293 +1,236 @@
 import random
 import pyautogui
-import time
-import threading
-import os
-import signal
-from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow
-from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import QByteArray
 import urllib.request
 import json
+import sys
+import os
 
-# Configuration flags for different chaos modes
-ENABLE_RANDOM_KEYS = False  # Mode 0
-ENABLE_RANDOM_WORDS = True  # Mode 1
-ENABLE_RANDOM_EMOTICONS = False  # Mode 2
-ENABLE_RANDOM_LETTERS = True  # Mode 3
-ENABLE_RANDOM_SENTENCES = False  # Mode 4 (not implemented yet)
-ENABLE_MINECRAFT_MODE = False # Mode 5
-ENABLE_SAVE_DOCUMENT = False # Presses Ctrl and S to save before it does anythings, might save you hours of work.
-ENABLE_POPUP_CAT = True  # Cat covers screen while chaos is happening
+from PyQt5.QtWidgets import (
+    QMainWindow, QLabel, QApplication,
+    QSystemTrayIcon, QMenu, QAction
+)
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QPixmap, QIcon
 
-# 0 is random keys
-# 1 is random words
-# 2 is random emoticons
-# 3 is coherent sentances
-# 4 is everything
 
-def chaos_time():
-    # Remove the fixed randomness and use variable timing instead
-    min_seconds = 5  # minimum time between chaos events
-    max_seconds = 10  # maximum time between chaos events (27000 = 7.5 hours)
+# ─── CONFIG FLAGS ───────────────────────────────────────────────────────────
+WORD_LIST_PATH = 'many_words.txt'
+EMOTICON_LIST_PATH = 'emoticonList.txt'
 
-    global running
-    while running:
-        try:
-            sleep_time = random.randint(min_seconds, max_seconds)
-            time.sleep(sleep_time)
-            if running:  # Check flag before executing
-                choose_chaos()
-        except Exception as e:
-            print(f"Error during chaos: {e}")
-            time.sleep(5)  # Wait a bit before retrying
+ENABLE_RANDOM_KEYS      = False
+ENABLE_RANDOM_WORDS     = True
+ENABLE_RANDOM_EMOTICONS = False
+ENABLE_RANDOM_LETTERS   = True
+ENABLE_RANDOM_SENTENCES = False  # TODO
+ENABLE_MINECRAFT_MODE   = False
+ENABLE_SAVE_DOCUMENT    = False
 
-def start_chaos_daemon():
-    global chaos_thread, running
-    running = True
-    # Write PID to file
-    with open('chaos.pid', 'w') as f:
-        f.write(str(os.getpid()))
-    chaos_thread = threading.Thread(target=chaos_time, daemon=True)
-    chaos_thread.start()
-    return chaos_thread
+min_interval_sec = 900
+max_interval_sec = 7200
 
-def choose_chaos():
-    # Create a list of enabled modes
-    enabled_modes = []
-    if ENABLE_RANDOM_KEYS:
-        enabled_modes.append(0)
-    if ENABLE_RANDOM_WORDS:
-        enabled_modes.append(1)
-    if ENABLE_RANDOM_EMOTICONS:
-        enabled_modes.append(2)
-    if ENABLE_RANDOM_LETTERS:
-        enabled_modes.append(3)
-    if ENABLE_RANDOM_SENTENCES:
-        enabled_modes.append(4)
-    if ENABLE_MINECRAFT_MODE:
-        enabled_modes.append(5)
-    if ENABLE_SAVE_DOCUMENT:
-        enabled_modes.append(6)
-    if ENABLE_POPUP_CAT:
-        enabled_modes.append(7)
-    
-    if not enabled_modes:
-        print("No chaos modes are enabled!")
-        return
-    
-    TheNumber = random.choice(enabled_modes)
+# keep alive so Python doesn't GC windows too early
+_popup_windows = []
 
-    if ENABLE_SAVE_DOCUMENT:
-        pyautogui.hotkey('ctrl', 's')  # Save document before chaos
+# ─── TRAY ICON ─────────────────────────────────────────────────────────────────
+def resource_path(filename):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, filename)
+    return os.path.join(os.path.abspath("."), filename)
 
-    if TheNumber == 0:
-        randKeys()
-    elif TheNumber == 1:
-        randWords()
-    elif TheNumber == 2:
-        randEmoticons()
-    elif TheNumber == 3:
-        randLetters()
-    elif TheNumber == 4:
-        pass  # TODO: implement randSentence()
+# ─── CAT IMAGE FETCHER ──────────────────────────────────────────────────────
+def random_cat_pixmap():
+    """Fetch a random cat image and return it as an in‑memory QPixmap."""
+    try:
+        with urllib.request.urlopen("https://api.thecatapi.com/v1/images/search") as r:
+            url = json.loads(r.read().decode())[0]["url"]
+        with urllib.request.urlopen(url) as r:
+            data = r.read()
+        pix = QPixmap()
+        if pix.loadFromData(data):
+            return pix
+    except Exception as e:
+        print("Error fetching cat image:", e)
 
-    pyautogui.press('enter')
+    # Return fallback pixmap (e.g., solid black)
+    fallback = QPixmap(512, 512)
+    fallback.fill(Qt.black)
+    return fallback
 
-def random_cat():
-    with urllib.request.urlopen("https://api.thecatapi.com/v1/images/search") as response:
-        data = json.loads(response.read().decode())
-        image_url = data[0]["url"]
 
-    with urllib.request.urlopen(image_url) as img_response:
-        img_data = img_response.read()
-
-    pixmap = QPixmap()
-    pixmap.loadFromData(img_data)
-    return pixmap
-# all_keys = pyautogui.KEYBOARD_KEYS
-
+# ─── POPUP WRAPPER ──────────────────────────────────────────────────────────
 def popup_wrapper(func):
     def wrapped(*args, **kwargs):
-        if not ENABLE_POPUP_CAT:
-            return func(*args, **kwargs)
+        popups = []
 
-        class Controller(QObject):
-            close_signal = pyqtSignal()
+        # Determine platform-specific window flags
+        if sys.platform == "win32":
+            flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        elif sys.platform == "darwin":
+            flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
+        else:
+            flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint  # fallback
 
-        def run_gui():
-            app = QApplication([])
-
+        for screen in QApplication.screens():
+            geo = screen.geometry()
             window = QMainWindow()
-            window.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-            window.setGeometry(0, 0, app.desktop().screenGeometry().width(), app.desktop().screenGeometry().height())
+            window.setWindowFlags(flags)
+            window.setGeometry(geo)
+            window.setStyleSheet("background-color: black;")
 
-            label = QLabel("Chaos Cat is now running!", window)
-            # get the cat image from the random_cat function and display it
-            label.setPixmap(random_cat())
+            # Attributes that prevent focus & allow click-through
+            window.setAttribute(Qt.WA_ShowWithoutActivating, True)
+            window.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+            label = QLabel(window)
+            pix = random_cat_pixmap().scaled(
+                geo.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            label.setPixmap(pix)
             label.setAlignment(Qt.AlignCenter)
-            label.setStyleSheet("font-size: 50px; color: white; background-color: black;")
-            label.setGeometry(0, 0, window.width(), window.height())
-            window.showFullScreen()
+            label.setGeometry(window.rect())
 
-            controller = Controller()
-            controller.close_signal.connect(window.close)
+            window.setWindowState(window.windowState() | Qt.WindowFullScreen)
+            window.show()
 
-            # Schedule the chaos function to run *after* the GUI shows up
-            QTimer.singleShot(100, lambda: (
-                func(*args, **kwargs),
-                controller.close_signal.emit(),
-                QTimer.singleShot(100, app.quit)
-            ))
+            _popup_windows.append(window)
+            popups.append(window)
 
-            app.exec_()
+        def run_and_close_all():
+            func(*args, **kwargs)
+            for w in popups:
+                w.close()
+                _popup_windows.remove(w)
 
-        run_gui()
+        QTimer.singleShot(100, run_and_close_all)
     return wrapped
 
-TheList = []
-CapsMode = False
-def Read_txt(file):
-    word_list = []
+# ─── CHAOS MODES ────────────────────────────────────────────────────────────
+@popup_wrapper
+def rand_keys():
+    """Type random keys, toggling CapsLock occasionally."""
+    caps = False
+    seq = []
+    for _ in range(random.randint(15, 50)):
+        if random.randrange(10) == 0:
+            seq.append('capslock')
+        seq.append(random.choice(pyautogui.KEYBOARD_KEYS))
+    for k in seq:
+        if k == 'capslock':
+            if not caps:
+                pyautogui.keyDown('capslock'); caps = True
+            else:
+                pyautogui.keyUp('capslock'); caps = False
+        else:
+            pyautogui.press(k)
+    pyautogui.keyUp('capslock')
+
+@popup_wrapper
+def rand_letters():
+    """Type random ASCII characters, toggling CapsLock occasionally."""
+    caps = False
+    letters = [chr(i) for i in range(32, 127)]
+    seq = []
+    for _ in range(random.randint(15, 50)):
+        if random.randrange(10) == 0:
+            seq.append('capslock')
+        seq.append(random.choice(letters))
+    for ch in seq:
+        if ch == 'capslock':
+            if not caps:
+                pyautogui.keyDown('capslock'); caps = True
+            else:
+                pyautogui.keyUp('capslock'); caps = False
+        else:
+            pyautogui.press(ch)
+    pyautogui.keyUp('capslock')
+
+@popup_wrapper
+def rand_words():
+    """Type random words from 'many_words.txt', capitalizing occasionally."""
     try:
-        with open(file, 'r') as file:
-            for line in file:
-                # Strip whitespace and skip empty lines
-                # word = line.strip()
-                # if word:
-                word = line.strip()
-                if word:  # Only append non-empty lines
-                    word_list.append(word)
+        with open(WORD_LIST_PATH) as f:
+            words = [w.strip() for w in f if w.strip()]
     except FileNotFoundError:
-        print("Error: many_words.txt file not found")
-        return []
-    return word_list
-
-# TODO: Make this only run if minecraft is open
-# TODO: Make this check if minecraft is open
-@popup_wrapper
-def randMC():
-    # W, A, S, D, space
-    Chances = random.randint(0, 5)
-    if Chances == 0:
-        pyautogui.press('W')
-    elif Chances == 1:
-        pyautogui.press('A')
-    elif Chances == 2:
-        pyautogui.press('S')
-    elif Chances == 3:
-        pyautogui.press('D')
-    elif Chances == 4:
-        pyautogui.press('space')
-    elif Chances == 5:
-        pyautogui.press('shift')
-
-@popup_wrapper
-def randKeys():
-    global CapsMode  # Properly scope the global variable
-    TheList = []  # Move list creation inside function
-    for i in range(random.randint(15,50)):
-        all_keys = pyautogui.KEYBOARD_KEYS
-        if random.randint(0,10) == 0:
-            TheList.append('capslock')
-        TheList.append(random.choice(all_keys))
-    print(TheList)
-    for item in TheList:
-        if item == 'capslock':
-            if CapsMode == False:
-                pyautogui.keyDown('capslock')
-                CapsMode = True
-            else:
-                pyautogui.keyUp('capslock')
-                CapsMode = False
-        else:
-            pyautogui.press(item)
-    TheList.clear()
-    pyautogui.keyUp('capslock')
-    CapsMode = False
-    print('Keys mode activated')
-
-@popup_wrapper
-def randLetters():
-    global CapsMode  # Properly scope the global variable
-    TheList = []  # Move list creation inside function
-    for i in range(random.randint(15,50)):
-        all_letters = [chr(i) for i in range(32, 127) if not (chr(i).startswith('F') and len(chr(i)) > 1)]
-        if random.randint(0,10) == 0:
-            TheList.append('capslock')
-        TheList.append(random.choice(all_letters))
-    print(TheList)
-    for item in TheList:
-        if item == 'capslock':
-            if CapsMode == False:
-                pyautogui.keyDown('capslock')
-                CapsMode = True
-            else:
-                pyautogui.keyUp('capslock')
-                CapsMode = False
-        else:
-            pyautogui.press(item)
-    TheList.clear()
-    pyautogui.keyUp('capslock')
-    CapsMode = False
-    print('Letters mode activated')
-
-@popup_wrapper
-def randWords():
-    words = Read_txt('many_words.txt')
-    if not words:
+        print("many_words.txt not found")
         return
-    
-    # Select and type 3 random words
     for _ in range(10):
-        word = random.choice(words)
-        if random.randint(0,10) == 0:
-            # Capitalize the word
-            word = word.upper()
-        pyautogui.typewrite(word + ' ')
-    print('Words mode activated')
+        w = random.choice(words)
+        if random.randrange(10) == 0:
+            w = w.upper()
+        pyautogui.typewrite(w + ' ')
 
 @popup_wrapper
-def randEmoticons():
-    emotes = Read_txt('emoticonList.txt')
-    if not emotes:
+def rand_emoticons():
+    """Type random emoticons from 'emoticonList.txt'."""
+    try:
+        with open(EMOTICON_LIST_PATH) as f:
+            emotes = [e.strip() for e in f if e.strip()]
+    except FileNotFoundError:
+        print("emoticonList.txt not found")
         return
-    
-    # Select and type 3 random words
     for _ in range(10):
-        word = random.choice(emotes)
-        pyautogui.typewrite(word + ' ')
-
-    print('Emoticon mode activated')
+        pyautogui.typewrite(random.choice(emotes) + ' ')
     pyautogui.press('enter')
 
-# def randSentence():
-    # TODO: use ollama maybe for some stupid sentences?
-    # TODO: implement this
-    
+@popup_wrapper
+def rand_minecraft_mode():
+    """Press a random Minecraft movement key."""
+    pyautogui.press(random.choice(['w','a','s','d','space','shift']))
 
-# Add signal handler
-def signal_handler(signum, frame):
-    global running
-    running = False
-    print("\nChaos cat is going to sleep...")
-    os._exit(0)
+def rand_sentences():
+    print("rand_sentences is not implemented yet.")
+    pass
+
+
+# ─── SCHEDULER & CORE ───────────────────────────────────────────────────────
+def choose_chaos():
+    """Pick one enabled mode at random, run it, then press Enter."""
+    modes = []
+    if ENABLE_RANDOM_KEYS:      modes.append(rand_keys)
+    if ENABLE_RANDOM_WORDS:     modes.append(rand_words)
+    if ENABLE_RANDOM_EMOTICONS: modes.append(rand_emoticons)
+    if ENABLE_RANDOM_LETTERS:   modes.append(rand_letters)
+    if ENABLE_RANDOM_SENTENCES: modes.append(rand_sentences)
+    if ENABLE_MINECRAFT_MODE:   modes.append(rand_minecraft_mode)
+
+    if not modes:
+        print("No chaos modes enabled.")
+        return
+
+    if ENABLE_SAVE_DOCUMENT:
+        pyautogui.hotkey('ctrl', 's')
+
+    random.choice(modes)()
+    pyautogui.keyUp('capslock')
+    pyautogui.press('enter')
+
+def schedule_chaos():
+    """Run a chaos event, then re-schedule after a random delay."""
+    choose_chaos()
+    delay = random.randint(min_interval_sec, max_interval_sec) * 1000
+    QTimer.singleShot(delay, schedule_chaos)
+
+# ─── MAIN ───────────────────────────────────────────────────────────────────
+def main():
+    global app
+    app = QApplication([])
+    app.setQuitOnLastWindowClosed(False)
+
+    tray_icon = QSystemTrayIcon()
+    tray_icon.setIcon(QIcon(resource_path("cat.png")))
+    tray_icon.setToolTip("Chaos Cat - Running...")
+    tray_icon.setVisible(True)
+
+    menu = QMenu()
+    quit_action = QAction("Quit")
+    quit_action.triggered.connect(app.quit)
+    menu.addAction(quit_action)
+
+    tray_icon.setContextMenu(menu)
+    tray_icon.show()
+
+    QTimer.singleShot(0, schedule_chaos)  # Your chaos scheduler
+    app.exec_()
 
 if __name__ == "__main__":
-    # Register signal handler
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-    print("Chaos cat is now running in the background...")
-    print("Press Ctrl+C to exit")
-    
-    # Start the chaos thread
-    chaos_thread = start_chaos_daemon()
-    choose_chaos()
-    
-    try:
-        # Keep the main thread alive
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\nChaos cat is going to sleep...")
+    main()
