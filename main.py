@@ -12,6 +12,7 @@ ENABLE_RANDOM_EMOTICONS = False  # Mode 2
 ENABLE_RANDOM_LETTERS = True  # Mode 3
 ENABLE_RANDOM_SENTENCES = False  # Mode 4 (not implemented yet)
 ENABLE_MINECRAFT_MODE = False # Mode 5
+ENABLE_SAVE_DOCUMENT = True # Presses Ctrl and S to save before it does anythings, might save you hours of work.
 
 # 0 is random keys
 # 1 is random words
@@ -21,8 +22,8 @@ ENABLE_MINECRAFT_MODE = False # Mode 5
 
 def chaos_time():
     # Remove the fixed randomness and use variable timing instead
-    min_seconds = 250  # minimum time between chaos events
-    max_seconds = 1000  # maximum time between chaos events (27000 = 7.5 hours)
+    min_seconds = 1000  # minimum time between chaos events
+    max_seconds = 27000  # maximum time between chaos events (27000 = 7.5 hours)
 
     global running
     while running:
@@ -60,6 +61,8 @@ def choose_chaos():
         enabled_modes.append(4)
     if ENABLE_MINECRAFT_MODE:
         enabled_modes.append(5)
+    if ENABLE_SAVE_DOCUMENT:
+        enabled_modes.append(6)
     
     if not enabled_modes:
         print("No chaos modes are enabled!")
@@ -105,6 +108,8 @@ def Read_txt(file):
     return word_list
     
 def randMC():
+    if ENABLE_SAVE_DOCUMENT:
+        pyautogui.hotkey('ctrl', 's')
     # W, A, S, D, space
     Chances = random.randint(0, 5)
     if Chances == 0:
@@ -121,11 +126,13 @@ def randMC():
         pyautogui.press('shift')
     
 def randKeys():
+    if ENABLE_SAVE_DOCUMENT:
+        pyautogui.hotkey('ctrl', 's')
     global CapsMode  # Properly scope the global variable
     TheList = []  # Move list creation inside function
     for i in range(random.randint(15,50)):
         all_keys = pyautogui.KEYBOARD_KEYS
-        if random.randint(0,1) == 0:
+        if random.randint(0,10) == 0:
             TheList.append('capslock')
         TheList.append(random.choice(all_keys))
     print(TheList)
@@ -145,11 +152,13 @@ def randKeys():
     print('Keys mode activated')
 
 def randLetters():
+    if ENABLE_SAVE_DOCUMENT:
+        pyautogui.hotkey('ctrl', 's')
     global CapsMode  # Properly scope the global variable
     TheList = []  # Move list creation inside function
     for i in range(random.randint(15,50)):
         all_letters = [chr(i) for i in range(32, 127) if not (chr(i).startswith('F') and len(chr(i)) > 1)]
-        if random.randint(0,1) == 0:
+        if random.randint(0,10) == 0:
             TheList.append('capslock')
         TheList.append(random.choice(all_letters))
     print(TheList)
@@ -169,6 +178,8 @@ def randLetters():
     print('Letters mode activated')
 
 def randWords():
+    if ENABLE_SAVE_DOCUMENT:
+        pyautogui.hotkey('ctrl', 's')
     words = Read_txt('many_words.txt')
     if not words:
         return
@@ -176,7 +187,7 @@ def randWords():
     # Select and type 3 random words
     for _ in range(10):
         word = random.choice(words)
-        if random.randint(0,1) == 0:
+        if random.randint(0,10) == 0:
             # Capitalize the word
             word = word.upper()
         pyautogui.typewrite(word + ' ')
@@ -184,6 +195,8 @@ def randWords():
 
 
 def randEmoticons():
+    if ENABLE_SAVE_DOCUMENT:
+        pyautogui.hotkey('ctrl', 's')
     emotes = Read_txt('emoticonList.txt')
     if not emotes:
         return
