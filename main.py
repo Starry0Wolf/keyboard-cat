@@ -4,6 +4,9 @@ import time
 import threading
 import os
 import signal
+from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
+
 
 # Configuration flags for different chaos modes
 ENABLE_RANDOM_KEYS = False  # Mode 0
@@ -13,6 +16,7 @@ ENABLE_RANDOM_LETTERS = True  # Mode 3
 ENABLE_RANDOM_SENTENCES = False  # Mode 4 (not implemented yet)
 ENABLE_MINECRAFT_MODE = False # Mode 5
 ENABLE_SAVE_DOCUMENT = True # Presses Ctrl and S to save before it does anythings, might save you hours of work.
+ENABLE_POPUP_CAT = True  # Cat covers screen while chaos is happening
 
 # 0 is random keys
 # 1 is random words
@@ -63,31 +67,68 @@ def choose_chaos():
         enabled_modes.append(5)
     if ENABLE_SAVE_DOCUMENT:
         enabled_modes.append(6)
+    if ENABLE_POPUP_CAT:
+        enabled_modes.append(7)
     
     if not enabled_modes:
         print("No chaos modes are enabled!")
         return
     
-    # Choose from enabled modes only
-    if ENABLE_MINECRAFT_MODE == True:
-        randMC()
-    else:
-        TheNumber = random.choice(enabled_modes)
-        
-        if TheNumber == 0:
-            randKeys()
-        elif TheNumber == 1:
-            randWords()
-        elif TheNumber == 2:
-            randEmoticons()
-        elif TheNumber == 3:
-            randLetters()
-        elif TheNumber == 4:
-            pass  # TODO: implement randSentence()
+    TheNumber = random.choice(enabled_modes)
 
-        pyautogui.press('enter')
+    if ENABLE_SAVE_DOCUMENT:
+        pyautogui.hotkey('ctrl', 's')  # Save document before chaos
+
+    if TheNumber == 0:
+        randKeys()
+    elif TheNumber == 1:
+        randWords()
+    elif TheNumber == 2:
+        randEmoticons()
+    elif TheNumber == 3:
+        randLetters()
+    elif TheNumber == 4:
+        pass  # TODO: implement randSentence()
+
+    pyautogui.press('enter')
 
 # all_keys = pyautogui.KEYBOARD_KEYS
+
+def popup_wrapper(func):
+    def wrapped(*args, **kwargs):
+        if not ENABLE_POPUP_CAT:
+            return func(*args, **kwargs)
+
+        class Controller(QObject):
+            close_signal = pyqtSignal()
+
+        def run_gui():
+            app = QApplication([])
+
+            window = QMainWindow()
+            window.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+            window.setGeometry(0, 0, app.desktop().screenGeometry().width(), app.desktop().screenGeometry().height())
+
+            label = QLabel("Chaos Cat is now running!", window)
+            label.setAlignment(Qt.AlignCenter)
+            label.setStyleSheet("font-size: 50px; color: white; background-color: black;")
+            label.setGeometry(0, 0, window.width(), window.height())
+            window.showFullScreen()
+
+            controller = Controller()
+            controller.close_signal.connect(window.close)
+
+            # Schedule the chaos function to run *after* the GUI shows up
+            QTimer.singleShot(100, lambda: (
+                func(*args, **kwargs),
+                controller.close_signal.emit(),
+                QTimer.singleShot(100, app.quit)
+            ))
+
+            app.exec_()
+
+        run_gui()
+    return wrapped
 
 TheList = []
 CapsMode = False
@@ -106,10 +147,11 @@ def Read_txt(file):
         print("Error: many_words.txt file not found")
         return []
     return word_list
-    
+
+# TODO: Make this only run if minecraft is open
+# TODO: Make this check if minecraft is open
+@popup_wrapper
 def randMC():
-    if ENABLE_SAVE_DOCUMENT:
-        pyautogui.hotkey('ctrl', 's')
     # W, A, S, D, space
     Chances = random.randint(0, 5)
     if Chances == 0:
@@ -124,10 +166,9 @@ def randMC():
         pyautogui.press('space')
     elif Chances == 5:
         pyautogui.press('shift')
-    
+
+@popup_wrapper
 def randKeys():
-    if ENABLE_SAVE_DOCUMENT:
-        pyautogui.hotkey('ctrl', 's')
     global CapsMode  # Properly scope the global variable
     TheList = []  # Move list creation inside function
     for i in range(random.randint(15,50)):
@@ -151,9 +192,8 @@ def randKeys():
     CapsMode = False
     print('Keys mode activated')
 
+@popup_wrapper
 def randLetters():
-    if ENABLE_SAVE_DOCUMENT:
-        pyautogui.hotkey('ctrl', 's')
     global CapsMode  # Properly scope the global variable
     TheList = []  # Move list creation inside function
     for i in range(random.randint(15,50)):
@@ -177,9 +217,8 @@ def randLetters():
     CapsMode = False
     print('Letters mode activated')
 
+@popup_wrapper
 def randWords():
-    if ENABLE_SAVE_DOCUMENT:
-        pyautogui.hotkey('ctrl', 's')
     words = Read_txt('many_words.txt')
     if not words:
         return
@@ -193,10 +232,8 @@ def randWords():
         pyautogui.typewrite(word + ' ')
     print('Words mode activated')
 
-
+@popup_wrapper
 def randEmoticons():
-    if ENABLE_SAVE_DOCUMENT:
-        pyautogui.hotkey('ctrl', 's')
     emotes = Read_txt('emoticonList.txt')
     if not emotes:
         return
