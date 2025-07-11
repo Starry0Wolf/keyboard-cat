@@ -11,6 +11,3 @@ venv/
 
 # Ignore stupid MacOS 
 .DS_Store
-
-# Ignore temp PID storage
-chaos.pid
